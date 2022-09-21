@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
@@ -11,25 +13,59 @@ import (
 )
 
 type awsInstance struct {
-	ID           string
-	Name         string
-	OS           string
-	MetricLabels [][]cwTypes.Dimension
+	ID      string
+	Name    string
+	OS      string
+	Metrics []cwTypes.Metric
 }
 
-func (i *awsInstance) CheckMetrics(client cloudwatch.Client) string {
-	var displaySTR string
-	for _, t := range i.MetricLabels {
-		for _, d := range t {
+func (i *awsInstance) CheckMetrics(client cloudwatch.Client) {
 
-			displaySTR += *d.Name + ": " + *d.Value + "\t"
+	for _, t := range i.Metrics {
+		res, e := client.DescribeAlarmsForMetric(context.TODO(), &cloudwatch.DescribeAlarmsForMetricInput{
+			MetricName: t.MetricName,
+			Namespace:  t.Namespace,
+			Dimensions: t.Dimensions,
+		})
+		if e != nil {
+			logrus.Error(e)
+			continue
+		}
+
+		if len(res.MetricAlarms) == 0 {
+			logrus.Warnf("No alarms exist for %s %s on %s", *t.MetricName, getLocationName(t.Dimensions), i.Name)
+			if handleInput() {
+				if err := createAlarm(&client, *i, t); err != nil {
+					logrus.Error(err)
+				}
+			}
+		} else {
+			logrus.Debugf("Metric exists for %s %s on %s", *t.MetricName, getLocationName(t.Dimensions), i.Name)
 		}
 	}
-	return displaySTR
+}
+
+func handleInput() bool {
+	logrus.Info("Would you like to auto-generate a new alarm? (y/n)")
+	var resp string
+	fmt.Scanln(&resp)
+	switch {
+	case strings.ToLower(string(resp[0])) == "y":
+		logrus.Info("Adding alarm")
+		return true
+	case strings.ToLower(string(resp[0])) == "n":
+		logrus.Info("Will not generate alarm")
+	default:
+		logrus.Error("Invalid option")
+		handleInput()
+	}
+	return false
+
 }
 
 func main() {
 	// Load the Shared AWS Configuration (~/.aws/config)
+	logrus.SetLevel(logrus.DebugLevel)
 	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		logrus.Fatal(err)
@@ -43,12 +79,11 @@ func main() {
 		logrus.Fatal(err)
 	}
 	for _, i := range runningInstances {
-		dimensions, err := getPossibleAlarms(cwClient, i)
+		i, err := getPossibleAlarms(cwClient, i)
 		if err != nil {
 			logrus.Warnln(err, "Skipping...")
 			continue
 		}
-		i.MetricLabels = dimensions
-		logrus.Info(i.CheckMetrics(*cwClient))
+		i.CheckMetrics(*cwClient)
 	}
 }
