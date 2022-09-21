@@ -10,7 +10,6 @@ import (
 	cwTypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/sirupsen/logrus"
 )
 
 func getPossibleAlarms(client *cloudwatch.Client, instance awsInstance) (awsInstance, error) {
@@ -135,7 +134,7 @@ func createAlarm(client *cloudwatch.Client, instance awsInstance, metric cwTypes
 	if err != nil {
 		return err
 	}
-	logrus.Info("Created ", name)
+	logger.Info("Created ", name)
 	return nil
 }
 
